@@ -2,16 +2,19 @@ import requests
 import csv
 from datetime import datetime
 
-def fetch_kline_data(symbol="ETHUSDT", interval="1h", limit=24):
+def fetch_kline_data(symbol="ETHUSDT", interval="60m", limit=24):
     url = "https://api.mexc.com/api/v3/klines"
     params = {
         "symbol": symbol,
         "interval": interval,
         "limit": limit
     }
+    headers = {
+        "User-Agent": "Mozilla/5.0"  # Helpful in some environments
+    }
 
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, headers=headers, timeout=10)
         response.raise_for_status()
         klines = response.json()
 
@@ -47,6 +50,6 @@ def fetch_kline_data(symbol="ETHUSDT", interval="1h", limit=24):
 
     return []
 
-# Example call
+# Example usage
 if __name__ == "__main__":
-    fetch_kline_data("ETHUSDT", "1h", 24)
+    fetch_kline_data("ETHUSDT", "60m", 24)
