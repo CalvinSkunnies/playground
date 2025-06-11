@@ -2,7 +2,7 @@ name: Scheduled Python Script
 
 on:
   schedule:
-    # - cron: '0 */1 * * *'  # Runs every 1 hours
+    - cron: '0 */1 * * *'  # Runs every 1 hours
   push:
     branches:
       - main
@@ -38,7 +38,8 @@ jobs:
 
       - name: Run Python scripts
         run: |
-          python HistoricalData.py
+          python cryptorank.py
+#          python HistoricalData.py
           
       - name: Commit and Push Changes
         env:
