@@ -3,17 +3,22 @@ import pandas as pd
 import time
 from datetime import datetime
 
+# =========================
 # 1. Fetch market data (with rate-limit retry)
+# =========================
 def fetch_market_data(vs_currency="usd", per_page=50, page=1, retries=3):
+    """
+    Mengambil data pasar dari CoinGecko dengan penanganan batas laju (rate limit).
+    """
     url = "https://api.coingecko.com/api/v3/coins/markets"
+    # CRITICAL: Meminta data 24h dan 7d secara eksplisit
     params = {
         "vs_currency": vs_currency,
         "order": "market_cap_desc",
         "per_page": per_page,
         "page": page,
         "sparkline": False,
-        # CRITICAL FIX: Request 7d data explicitly
-        "price_change_percentage": "24h,7d"  # Must specify timeframes
+        "price_change_percentage": "24h,7d" 
     }
 
     headers = {
@@ -25,78 +30,124 @@ def fetch_market_data(vs_currency="usd", per_page=50, page=1, retries=3):
         response = requests.get(url, params=params, headers=headers)
 
         if response.status_code == 200:
-            time.sleep(1.25)  # respect rate limit
+            time.sleep(1.25)  # Menghormati batas laju
             return response.json()
 
         elif response.status_code == 429:
             wait_time = 10 * (attempt + 1)
-            print(f"⚠️ Rate limited (429). Retrying in {wait_time}s...")
+            print(f"⚠️ Batas laju (429). Mencoba lagi dalam {wait_time}s...")
             time.sleep(wait_time)
 
         else:
-            print(f"❌ Request failed with {response.status_code}: {response.text}")
+            print(f"❌ Permintaan gagal dengan {response.status_code}: {response.text}")
             break
 
-    raise Exception("❌ Failed after retries due to rate limiting.")
+    raise Exception("❌ Gagal setelah percobaan ulang karena batas laju.")
 
-# 2. Process and label gainers & losers (using 7d data)
-def get_combined_movers(data, top_n=20):
+# =========================
+# 2. Process and label gainers & losers
+# =========================
+def get_movers_for_timeframe(df, timeframe, top_n=20):
+    """
+    Memproses DataFrame untuk mendapatkan top N gainers dan losers
+    untuk kerangka waktu tertentu (misalnya, '24h' atau '7d').
+    """
+    change_col = f"{timeframe}_change_%"
+    
+    # Sortir dan dapatkan Gainers
+    gainers = df.sort_values(by=change_col, ascending=False).head(top_n).copy()
+    gainers["type"] = f"gainer_{timeframe}"
+
+    # Sortir dan dapatkan Losers
+    losers = df.sort_values(by=change_col, ascending=True).head(top_n).copy()
+    losers["type"] = f"loser_{timeframe}"
+
+    return gainers, losers
+
+def process_data(data):
+    """
+    Mengubah data JSON menjadi DataFrame dan menyiapkan kolom.
+    """
     df = pd.DataFrame(data)
     
-    # CORRECT FIELD NAMES - Verified with CoinGecko API
+    # Kolom yang dibutuhkan:
     required_columns = [
         "id", 
         "symbol", 
         "name", 
         "current_price",
-        "price_change_percentage_24h",
-        "price_change_percentage_7d"  # CORRECT 7D FIELD NAME
+        "price_change_percentage_24h_in_currency", # Gunakan bidang ini jika ingin nilai float mentah
+        "price_change_percentage_7d_in_currency"  # Gunakan bidang ini jika ingin nilai float mentah
     ]
     
-    # Filter out coins missing 7d data
-    df = df.dropna(subset=["price_change_percentage_7d"])
-    df = df[required_columns]
-    
-    # Rename for readability
+    # Gunakan nama kolom yang disederhanakan
     df = df.rename(columns={
-        "price_change_percentage_24h": "24h_change_%",
-        "price_change_percentage_7d": "7d_change_%"
+        "price_change_percentage_24h_in_currency": "24h_change_%",
+        "price_change_percentage_7d_in_currency": "7d_change_%"
     })
+    
+    # Filter dan hanya pilih kolom yang relevan
+    df = df.dropna(subset=["24h_change_%", "7d_change_%"])
+    df = df[["id", "symbol", "name", "current_price", "24h_change_%", "7d_change_%"]]
+    
+    return df
 
-    # Sort by 7-day performance
-    gainers = df.sort_values(by="7d_change_%", ascending=False).head(top_n)
-    gainers["type"] = "gainer_7d"
+# =========================
+# 3. Save and Display Results
+# =========================
+def save_and_display_results(df_24h, df_7d, filename):
+    """
+    Menggabungkan 24h dan 7d movers, menyimpan ke CSV, dan mencetak ringkasan.
+    """
+    combined = pd.concat([df_24h, df_7d], ignore_index=True)
+    combined.to_csv(filename, index=False)
+    
+    print(f"✅ Combined movers (24h & 7d) saved to {filename}")
+    print("\n--- Ringkasan Performa ---")
+    
+    # Tampilkan 24h Top 3
+    print("📈 Top 3 Gainers (24h):")
+    print(df_24h[df_24h['type'] == 'gainer_24h'].head(3)[['name', '24h_change_%']].to_string(index=False))
+    print("📉 Top 3 Losers (24h):")
+    print(df_24h[df_24h['type'] == 'loser_24h'].head(3)[['name', '24h_change_%']].to_string(index=False))
+    
+    print("\n---")
+    
+    # Tampilkan 7d Top 3
+    print("🚀 Top 3 Gainers (7d):")
+    print(df_7d[df_7d['type'] == 'gainer_7d'].head(3)[['name', '7d_change_%']].to_string(index=False))
+    print("🔻 Top 3 Losers (7d):")
+    print(df_7d[df_7d['type'] == 'loser_7d'].head(3)[['name', '7d_change_%']].to_string(index=False))
 
-    losers = df.sort_values(by="7d_change_%", ascending=True).head(top_n)
-    losers["type"] = "loser_7d"
-
-    combined = pd.concat([gainers, losers], ignore_index=True)
-    return combined
-
-# 3. Save to CSV
-def save_to_csv(df, filename):
-    df.to_csv(filename, index=False)
-    print(f"✅ Combined movers saved to {filename}")
-    print(f"📊 Top 3 7d Gainers:\n{gainers.head(3)[['name', '7d_change_%']]}")
-    print(f"📉 Top 3 7d Losers:\n{losers.head(3)[['name', '7d_change_%']]}")
-
+# =========================
 # 4. Main execution
+# =========================
 if __name__ == "__main__":
     try:
-        print("📡 Fetching CoinGecko market data (including 7d performance)...")
-        data = fetch_market_data()
-
-        print(f"📦 Retrieved {len(data)} coins. Processing 7-day movers...")
-        movers = get_combined_movers(data)
+        print("📡 Mengambil data pasar CoinGecko (termasuk performa 24h & 7d)...")
+        data = fetch_market_data(per_page=100) # Ambil 100 koin untuk hasil yang lebih bervariasi
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-        filename = f"TopGainersAndLosers_7d_{timestamp}.csv"
+        # 1. Memproses Data
+        df_processed = process_data(data)
+        print(f"📦 Mengambil {len(df_processed)} koin. Memproses pergerakan...")
 
-        save_to_csv(movers, filename)
+        # 2. Mendapatkan Pergerakan 24 Jam
+        gainers_24h, losers_24h = get_movers_for_timeframe(df_processed, '24h', top_n=10)
+        df_24h = pd.concat([gainers_24h, losers_24h])
+        
+        # 3. Mendapatkan Pergerakan 7 Hari
+        gainers_7d, losers_7d = get_movers_for_timeframe(df_processed, '7d', top_n=10)
+        df_7d = pd.concat([gainers_7d, losers_7d])
+        
+        # 4. Menyimpan dan Menampilkan
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        filename = f"TopMovers_24h_7d_{timestamp}.csv"
+
+        save_and_display_results(df_24h, df_7d, filename)
 
     except Exception as e:
-        print(f"❌ Critical Error: {str(e)}")
-        print("💡 Try these fixes:")
-        print("1. Check internet connection")
-        print("2. Verify CoinGecko API status: https://status.coingecko.com")
-        print("3. Reduce 'per_page' parameter if rate-limited")
+        print(f"❌ Kesalahan Kritis: {str(e)}")
+        print("💡 Coba perbaikan ini:")
+        print("1. Periksa koneksi internet")
+        print("2. Verifikasi status CoinGecko API: https://status.coingecko.com")
+        print("3. Kurangi parameter 'per_page' jika batas laju dialami")
