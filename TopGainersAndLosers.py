@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 # 1. Fetch market data (with rate-limit retry)
-def fetch_market_data(vs_currency="usd", per_page=250, page=1, retries=3):
+def fetch_market_data(vs_currency="usd", per_page=50, page=1, retries=3):
     url = "https://api.coingecko.com/api/v3/coins/markets"
     params = {
         "vs_currency": vs_currency,
