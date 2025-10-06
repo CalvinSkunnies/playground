@@ -12,7 +12,8 @@ def fetch_market_data(vs_currency="usd", per_page=250, page=1, retries=3):
         "per_page": per_page,
         "page": page,
         "sparkline": False,
-        # REMOVED INCORRECT PARAMETERS - CoinGecko returns these fields automatically
+        # CRITICAL FIX: Request 7d data explicitly
+        "price_change_percentage": "24h,7d"  # Must specify timeframes
     }
 
     headers = {
@@ -42,23 +43,27 @@ def fetch_market_data(vs_currency="usd", per_page=250, page=1, retries=3):
 def get_combined_movers(data, top_n=20):
     df = pd.DataFrame(data)
     
-    # CORRECT COLUMN NAMES - CoinGecko uses these exact field names
-    df = df[[
+    # CORRECT FIELD NAMES - Verified with CoinGecko API
+    required_columns = [
         "id", 
         "symbol", 
         "name", 
         "current_price",
-        "price_change_percentage_24h",  # Correct 24h field name
-        "price_change_percentage_7d_in_currency"  # Correct 7d field name
-    ]].dropna()
+        "price_change_percentage_24h",
+        "price_change_percentage_7d"  # CORRECT 7D FIELD NAME
+    ]
     
-    # RENAME COLUMNS FOR READABILITY
+    # Filter out coins missing 7d data
+    df = df.dropna(subset=["price_change_percentage_7d"])
+    df = df[required_columns]
+    
+    # Rename for readability
     df = df.rename(columns={
         "price_change_percentage_24h": "24h_change_%",
-        "price_change_percentage_7d_in_currency": "7d_change_%"
+        "price_change_percentage_7d": "7d_change_%"
     })
 
-    # SORT BY 7-DAY PERFORMANCE AS REQUESTED
+    # Sort by 7-day performance
     gainers = df.sort_values(by="7d_change_%", ascending=False).head(top_n)
     gainers["type"] = "gainer_7d"
 
@@ -72,20 +77,26 @@ def get_combined_movers(data, top_n=20):
 def save_to_csv(df, filename):
     df.to_csv(filename, index=False)
     print(f"✅ Combined movers saved to {filename}")
+    print(f"📊 Top 3 7d Gainers:\n{gainers.head(3)[['name', '7d_change_%']]}")
+    print(f"📉 Top 3 7d Losers:\n{losers.head(3)[['name', '7d_change_%']]}")
 
 # 4. Main execution
 if __name__ == "__main__":
     try:
-        print("📡 Fetching CoinGecko market data...")
+        print("📡 Fetching CoinGecko market data (including 7d performance)...")
         data = fetch_market_data()
 
+        print(f"📦 Retrieved {len(data)} coins. Processing 7-day movers...")
         movers = get_combined_movers(data)
         
-        # INCLUDE DATE IN FILENAME
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         filename = f"TopGainersAndLosers_7d_{timestamp}.csv"
 
         save_to_csv(movers, filename)
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Critical Error: {str(e)}")
+        print("💡 Try these fixes:")
+        print("1. Check internet connection")
+        print("2. Verify CoinGecko API status: https://status.coingecko.com")
+        print("3. Reduce 'per_page' parameter if rate-limited")
