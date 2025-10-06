@@ -38,8 +38,10 @@ jobs:
 
       - name: Run Python scripts
         run: |
+          python TopGainersAndLosers.py
 #          python cryptorank.py
 #          python HistoricalData.py
+                  
           
       - name: Commit and Push Changes
         env:
