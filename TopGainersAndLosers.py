@@ -140,8 +140,7 @@ if __name__ == "__main__":
         df_7d = pd.concat([gainers_7d, losers_7d])
         
         # 4. Menyimpan dan Menampilkan
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-        filename = f"TopMovers_24h_7d_{timestamp}.csv"
+        filename = f"TopGainersAndLosers.csv"
 
         save_and_display_results(df_24h, df_7d, filename)
 
