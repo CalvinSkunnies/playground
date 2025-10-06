@@ -38,7 +38,7 @@ jobs:
 
       - name: Run Python scripts
         run: |
-          python cryptorank.py
+#          python cryptorank.py
 #          python HistoricalData.py
           
       - name: Commit and Push Changes
